@@ -63,6 +63,8 @@
         text +='Lunar: '+ m_jd+'\n';
         date=swe.sd.swe_revjul(m_jd,swe.sd.SE_GREG_CAL);
         text +='Next Lunar: '+ date.year+'-'+date.month+'-'+date.day+'T'+Math.trunc(date.hour)+':'+(date.hour% 1*60).toFixed(2)+'\n';
+        swe.swe_calc_ut(m_jd, 1, flag, pl);
+        text +='Moon: '+ pl[0].toFixed(2)+' '+pl[3].toFixed(2)+'\n';
         document.querySelector('#text').textContent=text+'\n';
     </script>
 </body>
