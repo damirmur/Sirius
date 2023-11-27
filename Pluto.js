@@ -5897,7 +5897,7 @@ class SweDate{
       20081231,
       20120630,
       20150630,
-      0,  /* keep this 0 as end mark */
+      20161231,  /* keep this 0 as end mark */
       // JAVA ONLY to have the array extended to NLEAP_SECONDS_SPACE elements:
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -27554,7 +27554,7 @@ console.log(2, dc, retflag);
       }
       k = j + 1;
       if ((k - d) * this.SAROS_CYCLE < 2) {
-        attr[9] = parseFloat(saros_data_lunar[i].series_no);
+        attr[9] = parseFloat(this.saros_data_lunar[i].series_no);
         attr[10] = parseFloat(k) + 1;
         break;
       }
@@ -32792,13 +32792,13 @@ class SwissEph{
      * sidereal positions               *
      ************************************/
     if ((iflag & Swe.SEFLG_SIDEREAL)!=0) {
-      if ((swed.sidd.sid_mode & Swe.SE_SIDBIT_ECL_T0)!=0) {
+      if ((this.swed.sidd.sid_mode & Swe.SE_SIDBIT_ECL_T0)!=0) {
         if (swi_trop_ra2sid_lon(x2000, pdp.xreturn, 6, pdp.xreturn, 18, iflag,
                                 serr) != Swe.OK) {
           return Swe.ERR;
         }
       /* project onto solar system equator */
-      } else if ((swed.sidd.sid_mode & Swe.SE_SIDBIT_SSY_PLANE)!=0) {
+      } else if ((this.swed.sidd.sid_mode & Swe.SE_SIDBIT_SSY_PLANE)!=0) {
         if (swi_trop_ra2sid_lon_sosy(x2000, pdp.xreturn, 6, pdp.xreturn, 18,
                                      iflag, serr) != Swe.OK) {
           return Swe.ERR;
@@ -35441,6 +35441,298 @@ class SwissEph{
 
     return x[0]*y[yOffs]+x[1]*y[1+yOffs]+x[2]*y[2+yOffs];
   }
+  //damirmur solar, lunar, etc.
+
+ CROSS_PRECISION = 1 / 3600000.0;
+/*************************************************
+* compute Sun'scrossing over some longitude
+* flag covers the following bits as used by swe_calc():
+ SEFLG_HELCTR 		0 = geocentric, SUN, 1 = heliocentric, EARTH
+ SEFLG_TRUEPOS 	   	0 = apparent positions, 1 = true positions
+ SEFLG_NONUT 		0 = do nutation (true equinox of date)
+* returns juldate of the next crossing, with jd > jd_et
+* The returned time is ephemeris time; to get UT we must do
+* jd_ut = jd - deltat(jd) or use swe_solcross_ut.
+* Errors are indicated by returning a jd < jd_et!
+*************************************************/
+  swe_solcross(x2cross, jd_et, flag, serr){
+  let x = [0, 0, 0, 0, 0, 0]; //
+  let xlp, dist;
+  let jd;
+  let ipl = Swe.SE_SUN;
+  flag |= Swe.SEFLG_SPEED;
+  if (this.swe_calc(jd_et, ipl, flag, x, serr) < 0) 
+    return jd_et - 1;
+  xlp = 360.0 / 365.24;	/* mean solar speed */
+  dist = this.sl.swe_degnorm(x2cross - x[0]);
+  jd = jd_et + dist / xlp;
+  for(;;) {
+    if (this.swe_calc(jd, ipl, flag, x, serr) < 0) 
+      return jd_et - 1;
+    dist = this.sl.swe_difdeg2n(x2cross, x[0]);
+    jd += dist / x[3];
+    if (Math.abs(dist) < this.CROSS_PRECISION) break;
+  } 
+  return jd;
+};
+/*************************************************
+* compute Sun'scrossing over some longitude, in UT
+* flag covers the following bits as used by this.swe_calc():
+ SEFLG_HELCTR 		0 = geocentric, SUN, 1 = heliocentric, EARTH
+ SEFLG_TRUEPOS 	   	0 = apparent positions, 1 = true positions
+ SEFLG_NONUT 		0 = do nutation (true equinox of date)
+* returns juldate of the next crossing, with jd > jd_ut
+* The returned time is universal time;
+* Errors are indicated by returning a jd < jd_ut!
+*************************************************/
+ swe_solcross_ut(x2cross, jd_ut, flag, serr){
+  let x = [0, 0, 0, 0, 0, 0]; //
+  let xlp, dist;
+  let jd;
+  let ipl = Swe.SE_SUN;
+  flag |= Swe.SEFLG_SPEED;
+  if (this.swe_calc_ut(jd_ut, ipl, flag, x, serr) < 0) 
+    return jd_ut - 1;
+  xlp = 360.0 / 365.24;	/* mean solar speed */
+  dist = this.sl.swe_degnorm(x2cross - x[0]);
+  jd = jd_ut + dist / xlp;
+  for(;;) {
+    if (this.swe_calc_ut(jd, ipl, flag, x, serr) < 0) 
+      return jd_ut - 1;
+    dist = this.sl.swe_difdeg2n(x2cross, x[0]);
+    jd += dist / x[3];
+    if (Math.abs(dist) < this.CROSS_PRECISION) break;
+  } 
+  return jd;
+};
+/*************************************************
+* compute Moon's crossing over some longitude
+* flag covers the following bits as used by this.swe_calc():
+ SEFLG_TRUEPOS 	   	0 = apparent positions, 1 = true positions
+ SEFLG_NONUT 		0 = do nutation (true equinox of date)
+* returns juldate of the next crossing, with jd > jd_et
+* The returned time is ephemeris time; to get UT we must do
+* jd_ut = jd - deltat(jd);
+* Errors are indicated by returning a jd < jd_et!
+*************************************************/
+  swe_mooncross(x2cross, jd_et, flag, serr){
+  let x = [0, 0, 0, 0, 0, 0]; //
+  let xlp, dist;
+  let jd;
+  let ipl = Swe.SE_MOON;
+  flag |= Swe.SEFLG_SPEED;
+  if (this.swe_calc(jd_et, ipl, flag, x, serr) < 0) 
+    return jd_et - 1;
+  xlp = 360.0 / 27.32;	/* mean lunar speed */
+  dist = this.sl.swe_degnorm(x2cross - x[0]);
+  jd = jd_et + dist / xlp;
+  for(;;) {
+    if (this.swe_calc(jd, ipl, flag, x, serr) < 0) 
+      return jd_et - 1;
+    dist = this.sl.swe_difdeg2n(x2cross, x[0]);
+    jd += dist / x[3];
+    if (Math.abs(dist) < this.CROSS_PRECISION) break;
+  } 
+  return jd;
+};
+/*************************************************
+* compute Moon's crossing over some longitude
+* flag covers the following bits as used by this.swe_calc_ut():
+ SEFLG_TRUEPOS 	0 = apparent positions, 1 = true positions
+ SEFLG_NONUT 		0 = do nutation (true equinox of date)
+ SEFLG_SIDEREAL       0 = do tropical
+* returns juldate of the next crossing, with jd > jd_ut
+* The returned time is UT
+* Errors are indicated by returning a jd < jd_ut!
+* If sidereal is chosen, default mode is Fagan/Bradley. For different aynamshas,
+* swe_set_sid_mode() must be called first.
+*************************************************/
+swe_mooncross_ut(x2cross, jd_ut, flag, serr){
+  let x = [0, 0, 0, 0, 0, 0]; //
+  let xlp, dist;
+  let jd;
+  let ipl = Swe.SE_MOON;
+  flag |= Swe.SEFLG_SPEED;
+  if (this.swe_calc_ut(jd_ut, ipl, flag, x, serr) < 0) 
+    return jd_ut - 1;
+  xlp = 360.0 / 27.32;	/* mean lunar speed */
+  dist = this.sl.swe_degnorm(x2cross - x[0]);
+  jd = jd_ut + dist / xlp;
+  for(;;) {
+    if (this.swe_calc_ut(jd, ipl, flag, x, serr) < 0) 
+      return jd_ut - 1;
+    dist = this.sl.swe_difdeg2n(x2cross, x[0]);
+    jd += dist / x[3];
+    if (Math.abs(dist) < this.CROSS_PRECISION) break;
+  } 
+  return jd;
+};
+
+/*************************************************
+* compute next Moon crossing over node, by finding zero latitude crossing
+* returns juldate of the next crossing, with jd > jd_et
+* The returned time is ephemeris time; to get UT we must do
+* jd_ut = jd - deltat(jd);
+* Errors are indicated by returning a jd < jd_et!
+*************************************************/
+swe_mooncross_node(jd_et, flag, xlon, xla, serr){
+  let x = [0, 0, 0, 0, 0, 0]; //
+  let xlat, dist;
+  let jd;
+  let ipl = Swe.SE_MOON;
+  flag |= Swe.SEFLG_SPEED;
+  if (this.swe_calc(jd_et, ipl, flag, x, serr) < 0) 
+    return jd_et - 1;
+  xlat = x[1];
+  jd = jd_et + 1;
+  for(;;) {	// get to sign change
+    if (this.swe_calc(jd, ipl, flag, x, serr) < 0) 
+      return jd_et - 1;
+    if ((x[1] >= 0 && xlat < 0) || (x[1] < 0 && xlat > 0)) 
+      break;
+    jd += 1;
+  }
+  dist = x[1];
+  for(;;) {
+    jd -= dist / x[4];
+    if (this.swe_calc(jd, ipl, flag, x, serr) < 0) 
+      return jd_et - 1;
+    dist = x[1];
+    if (Math.abs(dist) < this.CROSS_PRECISION) {
+      xlon[0] = x[0];
+      xla[0] = x[1];
+      break;
+    }
+  } 
+  return jd;
+};
+/*************************************************
+* compute next Moon crossing over node in UT, by finding zero latitude crossing
+* returns juldate of the next crossing, with jd > jd_ut
+* The returned time is universal time;
+* Errors are indicated by returning a jd < jd_ut!
+*************************************************/
+swe_mooncross_node_ut(jd_ut, flag, xlon, xla, serr){
+  let x = [0, 0, 0, 0, 0, 0]; //
+  let xlat, dist;
+  let jd;
+  let ipl = Swe.SE_MOON;
+  flag |= Swe.SEFLG_SPEED;
+  if (this.swe_calc_ut(jd_ut, ipl, flag, x, serr) < 0) 
+    return jd_ut - 1;
+  xlat = x[1];
+  jd = jd_ut + 1;
+  for(;;) {	// get to sign change
+    if (this.swe_calc_ut(jd, ipl, flag, x, serr) < 0) 
+      return jd_ut - 1;
+    if ((x[1] >= 0 && xlat < 0) || (x[1] < 0 && xlat > 0)) 
+      break;
+    jd += 1;
+  }
+  dist = x[1];
+  for(;;) {
+    jd -= dist / x[4];
+    if (this.swe_calc_ut(jd, ipl, flag, x, serr) < 0) 
+      return jd_ut - 1;
+    dist = x[1];
+    if (Math.abs(dist) < this.CROSS_PRECISION) {
+      xlon[0] = x[0];
+      xla[0] = x[1];
+      break;
+    }
+  } 
+  return jd;
+};
+/*************************************************
+* compute a planets heliocentric crossing over some longitude
+* returns juldate of the next crossing, with jd > jd_et if dir >= 0,
+* or the previous crossing, if dir < 0.
+* The returned time is ephemeris time.
+* Errors are indicated by returning ERR;
+* This should only be used for rought house entry or exit times.
+*************************************************/
+swe_helio_cross(ipl, x2cross, jd_et, iflag, dir, jd_cross, serr){
+  let x = [0, 0, 0, 0, 0, 0]; //
+  let xlp, dist;
+  let jd;
+  let flag = iflag | Swe.SEFLG_SPEED | Swe.SEFLG_HELCTR;
+  if (ipl == Swe.SE_SUN 
+    || ipl == Swe.SE_MOON 
+    || (ipl >= Swe.SE_MEAN_NODE && ipl <= Swe.SE_OSCU_APOG)
+    || (ipl >= Swe.SE_INTP_APOG && ipl < Swe.SE_NPLANETS)
+  ) {
+    let snam = ""; // инициализируем строку snam
+    swe_get_planet_name(ipl, snam);
+    if (serr != null) serr = "swe_helio_cross: not possible for object " + ipl + " = " + snam;
+    return Swe.ERR;
+  }
+  if (this.swe_calc(jd_et, ipl, flag, x, serr) < 0) 
+    return Swe.ERR;
+  xlp = x[3];	
+  if (ipl == Swe.SE_CHIRON)
+    xlp = 0.01971;	// use mean speeed
+  dist = this.sl.swe_degnorm(x2cross - x[0]);
+  if (dir >= 0) {
+    jd = jd_et + dist / xlp;
+  } else {
+    dist = 360.0 - dist;
+    jd = jd_et - dist / xlp;
+  }
+  for(;;) {
+    if (this.swe_calc(jd, ipl, flag, x, serr) < 0) 
+      return Swe.ERR;
+    dist = this.sl.swe_difdeg2n(x2cross, x[0]);
+    jd += dist / x[3];
+    if (Math.abs(dist) < this.CROSS_PRECISION) break;
+  } 
+  jd_cross[0] = jd;
+  return OK;
+};
+/*************************************************
+* compute a planets heliocentric crossing over some longitude
+* returns juldate of the next crossing, with jd > jd_ut if dir >= 0,
+* or the previous crossing, if dir < 0.
+* The returned time is Universal time.
+* Errors are indicated by returning ERR;
+* This should only be used for rought house entry or exit times.
+*************************************************/
+swe_helio_cross_ut(ipl, x2cross, jd_ut, iflag, dir, jd_cross, serr){
+  let x = [0, 0, 0, 0, 0, 0]; //
+  let xlp, dist;
+  let jd;
+  let flag = iflag | Swe.SEFLG_SPEED | Swe.SEFLG_HELCTR;
+  if (ipl == Swe.SE_SUN 
+    || ipl == Swe.SE_MOON 
+    || (ipl >= Swe.SE_MEAN_NODE && ipl <= Swe.SE_OSCU_APOG)
+    || (ipl >= Swe.SE_INTP_APOG && ipl < Swe.SE_NPLANETS)
+  ) {
+    let snam = ""; // инициализируем строку snam
+    swe_get_planet_name(ipl, snam);
+    if (serr != null) serr = "swe_helio_cross: not possible for object " + ipl + " = " + snam;
+    return Swe.ERR;
+  }
+  if (this.swe_calc_ut(jd_ut, ipl, flag, x, serr) < 0) 
+    return Swe.ERR;
+  xlp = x[3];	
+  if (ipl == Swe.SE_CHIRON)
+    xlp = 0.01971;	// use mean speeed
+  dist = this.sl.swe_degnorm(x2cross - x[0]);
+  if (dir >= 0) {
+    jd = jd_ut + dist / xlp;
+  } else {
+    dist = 360.0 - dist;
+    jd = jd_ut - dist / xlp;
+  }
+  for(;;) {
+    if (this.swe_calc_ut(jd, ipl, flag, x, serr) < 0) 
+      return Swe.ERR;
+    dist = this.sl.swe_difdeg2n(x2cross, x[0]);
+    jd += dist / x[3];
+    if (Math.abs(dist) < this.CROSS_PRECISION) break;
+  } 
+  jd_cross[0] = jd;
+  return Swe.OK;
+}
 
 };
 
@@ -35476,6 +35768,7 @@ $pl.timezone = (function(){
 $pl.planets = {};
 $pl.houses = {};
 $pl.iflag = Swe.SEFLG_MOSEPH|Swe.SEFLG_SPEED;
+//$pl.iflag = Swe.SEFLG_SWIEPH|Swe.SEFLG_SPEED;
 $pl.longitude = 0;
 $pl.latitude = 0;
 $pl.house = "";
